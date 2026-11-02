@@ -22,19 +22,15 @@ def home():
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
-# دالة فحص وقت الجلسات النشطة (لندن ونيويورك حصرياً)
 def is_active_trading_session():
     try:
-        # توقيت جرينتش كمرجع أساسي لجلسات لندن ونيويورك
         utc_now = datetime.now(pytz.utc)
         hour = utc_now.hour
-        # جلسة لندن ونيويورك تتقاطع وتنشط غالباً بين الساعة 08:00 صباحاً و 17:00 عصراً بتوقيت غرينتش
         if 8 <= hour <= 17:
             return True
     except Exception as e:
         print(f"Session check error: {e}")
-    return True # افتراضي في حال الخطأ للسماح بالتتبع
-
+    return True
 
 def get_market_data():
     try:
@@ -46,42 +42,37 @@ def get_market_data():
             high_price = round(data['High'].iloc[-1], 2)
             low_price = round(data['Low'].iloc[-1], 2)
             volume = data['Volume'].iloc[-1]
-            avg_volume = data['Volume'].mean()
-            return current_price, open_price, high_price, low_price, volume, avg_volume
+            return current_price, open_price, high_price, low_price, volume
     except Exception as e:
         print(f"Error fetching market data: {e}")
-    return None, None, None, None, None, None
+    return None, None, None, None, None
 
 def auto_market_monitor():
     global USER_CHAT_ID
     print("Starting Commercial Grade IRS GOLD Engine...")
     
     last_alert_time = 0
-    cooldown_period = 900 # 15 دقيقة فاصل بين كل إشارة لضمان جودة استثنائية ونقاء التوصيات
+    cooldown_period = 900 
     
     while True:
         try:
-            # التحقق مما إذا كنا في أوقات الجلسات الكبرى (لندن / نيويورك)
             if not is_active_trading_session():
-                time.sleep(300) # الانتظار خارج أوقات الجلسات لعدم إهدار الموارد
+                time.sleep(300)
                 continue
 
             res = get_market_data()
             if res[0] is not None and USER_CHAT_ID:
-                current_price, open_price, high_price, low_price, volume, avg_volume = res
+                current_price, open_price, high_price, low_price, volume = res
                 current_time = time.time()
                 
-                # حساب الزخم المعتمد على السعر
                 price_diff = round(current_price - open_price, 2)
                 
-                # شروط الهندسة المعقدة: زخم قوي + فوليوم أعلى من المتوسط + مرور فترة الهدوء
                 if (current_time - last_alert_time > cooldown_period) and (abs(price_diff) >= 3.5):
                     
                     if price_diff > 0:
-                        # إشارة شراء معلقة (BUY-STOP) بناءً على اختراق السيولة الصاعدة
                         entry_price = round(current_price + 3.0, 2)
-                        sl = 4.0 # وقف الخسارة 4 دولار
-                        tp = 8.0 # جني الأرباح 8 دولار (نسبة 1:2 بدقة هندسية)
+                        sl = 4.0 
+                        tp = 8.0 
                         
                         tp_price = round(entry_price + tp, 2)
                         sl_price = round(entry_price - sl, 2)
@@ -97,7 +88,6 @@ def auto_market_monitor():
                             f"⚡ تم فحص الفوليوم والزخم: الفرصة مؤكدة وخالية من العشوائية!"
                         )
                     else:
-                        # إشارة بيع معلقة (SELL-STOP) بناءً على كسر السيولة الهابطة
                         entry_price = round(current_price - 3.0, 2)
                         sl = 4.0
                         tp = 8.0
@@ -168,8 +158,6 @@ if __name__ == "__main__":
     t_web = Thread(target=run_web)
     t_web.start()
     
-    t_monitor = Thread(target, auto_market_monitor) if 'auto_market_monitor' else None # syntax safety
-    # Running monitor thread properly:
     t_monitor = Thread(target=auto_market_monitor)
     t_monitor.start()
     

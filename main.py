@@ -18,7 +18,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "IRS GOLD CFD Pro Bot is Running!"
+    return "IRS GOLD Momentum Pro Bot is Running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
@@ -47,13 +47,8 @@ def is_active_trading_session():
 
 def get_market_data():
     try:
-        # استخدام بيانات تعكس حركة السعر بدقة CFD لتجنب فروق الفيوتشر الكبيرة
-        ticker = yf.Ticker("XAUUSD=X")
+        ticker = yf.Ticker("GC=F")
         data = ticker.history(period="1d", interval="1m")
-        if data.empty or len(data) < 2:
-            ticker = yf.Ticker("GC=F")
-            data = ticker.history(period="1d", interval="1m")
-            
         if not data.empty and len(data) >= 2:
             current_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
@@ -69,10 +64,10 @@ def get_current_time_with_seconds():
 
 def auto_market_monitor():
     global USER_CHAT_ID
-    print("Starting IRS GOLD CFD Pro Engine...")
+    print("Starting IRS GOLD Momentum Pro Engine...")
     
     active_trade_in_progress = False
-    trade_activated = False  # تأكيد عدم تفعيل الأهداف إلا بعد دخول السعر حيز التنفيذ
+    trade_activated = False
     target_tp = 0.0
     target_sl = 0.0
     trade_type = None
@@ -100,7 +95,6 @@ def auto_market_monitor():
                     exact_time = get_current_time_with_seconds()
                     trade_timer += 30  
                     
-                    # إلغاء الأمر المعلق إذا لم يتم تفعيله خلال 20 دقيقة لمنع الأوامر العالقة
                     if not trade_activated and trade_timer >= 1200:  
                         bot.send_message(USER_CHAT_ID, f"Risk Management: Pending order expired after 20 minutes without activation.\nTime: `{exact_time}`", parse_mode="Markdown")
                         active_trade_in_progress = False
@@ -108,7 +102,6 @@ def auto_market_monitor():
                         time.sleep(30)
                         continue
 
-                    # مرحلة مراقبة التفعيل والصفقة بحذر تام
                     if trade_type == "BUY-STOP":
                         if not trade_activated:
                             if current_price >= entry_price_val:
@@ -152,19 +145,19 @@ def auto_market_monitor():
 
                 price_diff = round(current_price - open_price, 2)
                 
-                # منع إعطاء صفقات وراء بعض: الشرط الأساسي ألا تكون هناك أي صفقة نشطة حالياً
-                if abs(price_diff) >= 2.5 and not active_trade_in_progress:
+                # منع تداخل الصفقات والتداول المفرط (صفقة واحدة نشطة في المرة)
+                if abs(price_diff) >= 2.0 and not active_trade_in_progress:
                     exact_time = get_current_time_with_seconds()
                     
                     if price_diff > 0:
-                        entry_price = round(current_price + 1.5, 2)
-                        sl = round(entry_price - 3.5, 2)
-                        tp = round(entry_price + 7.0, 2)
+                        entry_price = round(current_price + 1.0, 2)
+                        sl = round(entry_price - 3.0, 2)
+                        tp = round(entry_price + 6.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - CFD PRO (BUY-STOP)\n\n"
+                            f"IRS GOLD - MOMENTUM (BUY-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
-                            f"Current Price: `{current_price}`\n"
+                            f"Reference Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
                             f"Stop Loss (SL): `{sl}`\n"
                             f"Take Profit (TP): `{tp}`\n"
@@ -173,14 +166,14 @@ def auto_market_monitor():
                         trade_type = "BUY-STOP"
                         entry_price_val = entry_price
                     else:
-                        entry_price = round(current_price - 1.5, 2)
-                        sl = round(entry_price + 3.5, 2)
-                        tp = round(entry_price - 7.0, 2)
+                        entry_price = round(current_price - 1.0, 2)
+                        sl = round(entry_price + 3.0, 2)
+                        tp = round(entry_price - 6.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - CFD PRO (SELL-STOP)\n\n"
+                            f"IRS GOLD - MOMENTUM (SELL-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
-                            f"Current Price: `{current_price}`\n"
+                            f"Reference Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
                             f"Stop Loss (SL): `{sl}`\n"
                             f"Take Profit (TP): `{tp}`\n"
@@ -215,7 +208,7 @@ def send_welcome(bot_message):
     
     bot.reply_to(
         bot_message, 
-        "Welcome to IRS GOLD CFD Professional Edition.\nSystem is active with strict order isolation and precise pricing.",
+        "Welcome to IRS GOLD Momentum Edition.\nSystem is active with strict trade isolation and dynamic momentum tracking.",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -228,6 +221,32 @@ def callback_inline(call):
     if call.data == "live_price":
         bot.answer_callback_query(call.id)
         price, _ = get_market_data()
+        exact_time = get_current_time_with_seconds()
+        if price:
+            bot.send_message(call.message.chat.id, f"Market Reference Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")
+        else:
+            bot.send_message(call.message.chat.id, "Connecting to market feed...")
+            
+    elif call.data == "wallet_status":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
+        
+    elif call.data == "start_scalping":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Bot is running smoothly with isolated single-trade logic.", parse_mode="Markdown")
+
+if __name__ == "__main__":
+    t_web = Thread(target=run_web)
+    t_web.start()
+    
+    t_ping = Thread(target=self_ping_engine)
+    t_ping.start()
+    
+    t_monitor = Thread(target=auto_market_monitor)
+    t_monitor.start()
+    
+    print("Momentum Pro Bot is polling successfully...")
+    bot.infinity_polling()_data()
         exact_time = get_current_time_with_seconds()
         if price:
             bot.send_message(call.message.chat.id, f"CFD Gold Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")

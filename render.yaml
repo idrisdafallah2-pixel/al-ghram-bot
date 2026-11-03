@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: irs-gold-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TWELVE_API_KEY
+        sync: false

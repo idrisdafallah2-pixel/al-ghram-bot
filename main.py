@@ -236,31 +236,4 @@ if __name__ == "__main__":
     t_monitor.start()
     
     print("XChief Precise Bot is polling successfully...")
-    bot.infinity_polling())
-    t_monitor.start()
-    
-    print("XChief Precise Bot is polling successfully...")
-    bot.infinity_polling()e.chat.id, "🚀 **البوت يعمل بجهوزية تامة ودقة أسعار محسنة!**", parse_mode="Markdown")
-
-if __name__ == "__main__":
-    t_web = Thread(target=run_web)
-    t_web.start()
-    
-    t_ping =Thread(target=self_ping_engine)
-    t_ping.start()
-    
-    t_monitor = Thread(target=auto_market_monitor)
-    t_monitor.start()
-    
-    print("XChief Precise Bot is polling successfully...")
-    bot.infinity_polling() Thread(target=run_web)
-    t_web.start()
-    
-    t_ping = Thread(target=self_ping_engine)
-    t_ping.start()
-    
-    t_monitor = Thread(target=auto_market_monitor)
-    t_monitor.start()
-    
-    print("XChief Pro Bot is polling successfully...")
     bot.infinity_polling()

@@ -218,7 +218,7 @@ def callback_inline(call):
             
     elif call.data == "wallet_status":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: `1000.0$`\nLot Size: `0.10`\nRisk Control: Active", parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
         
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)
@@ -235,11 +235,7 @@ if __name__ == "__main__":
     t_monitor.start()
     
     print("Real-Trader Bot is polling successfully...")
-    bot.infinity_polling()ي: `1000.0$`\n- حجم العقد: `0.10`\n- نسبة النجاح وإدارة المخاطر: `فعالة بنسبة 100%`", parse_mode="Markdown")
-        
-    elif call.data == "start_scalping":
-        bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "🚀 **المتداول الآلي يعمل بكفاءة سفاحة وعقلية احترافية!**", parse_mode="Markdown")
+    bot.infinity_polling()**", parse_mode="Markdown")
 
 if __name__ == "__main__":
     t_web = Thread(target=run_web)

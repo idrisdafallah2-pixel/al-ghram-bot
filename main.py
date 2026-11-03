@@ -18,7 +18,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "IRS GOLD XChief Professional Bot is Running!"
+    return "IRS GOLD XChief Precise Bot is Running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
@@ -53,7 +53,7 @@ def get_market_data():
             raw_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
             
-            # معامل التصحيح المخصص لضبط الأسعار بدقة مع XChief
+            # معامل التصحيح المخصص لضبط أسعار XChief بدقة تامة
             price_offset = -12.40 
             
             current_price = round(raw_price + price_offset, 2)
@@ -71,7 +71,7 @@ def get_current_time_with_seconds():
 
 def auto_market_monitor():
     global USER_CHAT_ID
-    print("Starting IRS GOLD XChief Professional Engine...")
+    print("Starting IRS GOLD XChief Precise Engine...")
     
     active_trade_in_progress = False
     target_tp = 0.0
@@ -88,7 +88,7 @@ def auto_market_monitor():
             if not is_active_trading_session():
                 if active_trade_in_progress:
                     if USER_CHAT_ID:
-                        bot.send_message(USER_CHAT_ID, "Session Closed: Pending trade cancelled automatically to protect capital at session end.", parse_mode="Markdown")
+                        bot.send_message(USER_CHAT_ID, "Session Closed: Pending trade cancelled automatically to protect capital.", parse_mode="Markdown")
                     active_trade_in_progress = False
                 time.sleep(300)
                 continue
@@ -146,7 +146,7 @@ def auto_market_monitor():
                         tp = round(entry_price + 8.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - XCHIEF PRO (BUY-STOP)\n\n"
+                            f"IRS GOLD - XCHIEF (BUY-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
                             f"Current Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
@@ -162,7 +162,7 @@ def auto_market_monitor():
                         tp = round(entry_price - 8.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - XCHIEF PRO (SELL-STOP)\n\n"
+                            f"IRS GOLD - XCHIEF (SELL-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
                             f"Current Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
@@ -198,7 +198,7 @@ def send_welcome(bot_message):
     
     bot.reply_to(
         bot_message, 
-        "Welcome to IRS GOLD XChief Professional Edition.\nSystem is active with precise price matching and risk management.",
+        "Welcome to IRS GOLD XChief Edition.\nSystem is active with precise price matching.",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -223,7 +223,7 @@ def callback_inline(call):
         
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "Professional Scalper Bot is running smoothly.", parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "Bot is running smoothly with precise pricing.", parse_mode="Markdown")
 
 if __name__ == "__main__":
     t_web = Thread(target=run_web)
@@ -235,15 +235,8 @@ if __name__ == "__main__":
     t_monitor = Thread(target=auto_market_monitor)
     t_monitor.start()
     
-    print("XChief Professional Bot is polling successfully...")
-    bot.infinity_polling()
-    t_web = Thread(target=run_web)
-    t_web.start()
-    
-    t_ping = Thread(target=self_ping_engine)
-    t_ping.start()
-    
-    t_monitor = Thread(target=auto_market_monitor)
+    print("XChief Precise Bot is polling successfully...")
+    bot.infinity_polling())
     t_monitor.start()
     
     print("XChief Precise Bot is polling successfully...")

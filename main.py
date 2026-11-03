@@ -54,7 +54,7 @@ def get_market_data():
             raw_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
             
-            # تصحيح دقيق ومستقر لفارق النقاط (فارق نقطة إلى نقطتين بدقة CFD)
+            # تصحيح دقيق ومستقر لفارق النقاط بدقة CFD
             price_offset = -12.0 
             
             current_price = round(raw_price + price_offset, 2)
@@ -81,7 +81,7 @@ def auto_market_monitor():
     entry_price_val = 0.0
     trade_timer = 0  
     
-محاكاة رأس المال وإدارة المخاطر كمتداول حقيقي
+    # محاكاة رأس المال وإدارة المخاطر كمتداول حقيقي
     virtual_balance = 1000.0
     lot_size = 0.10
 
@@ -113,12 +113,12 @@ def auto_market_monitor():
                     if trade_type == "BUY-STOP":
                         if current_price >= entry_price_val:
                             if current_price >= target_tp:
-                                virtual_balance += 80.0  # محاكاة ربح حقيقي
+                                virtual_balance += 80.0  
                                 bot.send_message(USER_CHAT_ID, f"🎯 **تحقيق هدف الصفقة بنجاح (TP)!** ✅\n💰 الأرباح المحاكات المحققة: `+80$`\n💼 الرصيد الافتراضي المحدث: `{virtual_balance}$`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
                                 trade_timer = 0
                             elif current_price <= target_sl:
-                                virtual_balance -= 40.0  # محاكاة خسارة مدروسة
+                                virtual_balance -= 40.0  
                                 bot.send_message(USER_CHAT_ID, f"🛑 **ضرب وقف الخسارة (SL) - التزام تام بإدارة المخاطر.** ❌\n📉 الخسارة المحاكات: `-40$`\n💼 الرصيد الافتراضي المحدث: `{virtual_balance}$`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
                                 trade_timer = 0
@@ -224,6 +224,23 @@ def callback_inline(call):
     elif call.data == "wallet_status":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "💼 **حالة محفظة المتداول الحقيقي:**\n- رأس المال الافتراضي: `1000.0$`\n- حجم العقد: `0.10`\n- نسبة النجاح وإدارة المخاطر: `فعالة بنسبة 100%`", parse_mode="Markdown")
+        
+    elif call.data == "start_scalping":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "🚀 **المتداول الآلي يعمل بكفاءة سفاحة وعقلية احترافية!**", parse_mode="Markdown")
+
+if __name__ == "__main__":
+    t_web = Thread(target=run_web)
+    t_web.start()
+    
+    t_ping = Thread(target=self_ping_engine)
+    t_ping.start()
+    
+    t_monitor = Thread(target=auto_market_monitor)
+    t_monitor.start()
+    
+    print("Real-Trader Bot is polling successfully...")
+    bot.infinity_polling()� **حالة محفظة المتداول الحقيقي:**\n- رأس المال الافتراضي: `1000.0$`\n- حجم العقد: `0.10`\n- نسبة النجاح وإدارة المخاطر: `فعالة بنسبة 100%`", parse_mode="Markdown")
         
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)

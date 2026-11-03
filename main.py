@@ -18,7 +18,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "IRS GOLD XChief Precise Bot is Running!"
+    return "IRS GOLD CFD Pro Bot is Running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
@@ -47,19 +47,17 @@ def is_active_trading_session():
 
 def get_market_data():
     try:
-        ticker = yf.Ticker("GC=F")
+        # استخدام بيانات تعكس حركة السعر بدقة CFD لتجنب فروق الفيوتشر الكبيرة
+        ticker = yf.Ticker("XAUUSD=X")
         data = ticker.history(period="1d", interval="1m")
+        if data.empty or len(data) < 2:
+            ticker = yf.Ticker("GC=F")
+            data = ticker.history(period="1d", interval="1m")
+            
         if not data.empty and len(data) >= 2:
-            raw_price = round(data['Close'].iloc[-1], 2)
+            current_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
-            
-            # معامل التصحيح المخصص لضبط أسعار XChief بدقة تامة
-            price_offset = -12.40 
-            
-            current_price = round(raw_price + price_offset, 2)
-            open_adjusted = round(open_price + price_offset, 2)
-            
-            return current_price, open_adjusted
+            return current_price, open_price
     except Exception as e:
         print(f"Error fetching market data: {e}")
     return None, None
@@ -71,9 +69,10 @@ def get_current_time_with_seconds():
 
 def auto_market_monitor():
     global USER_CHAT_ID
-    print("Starting IRS GOLD XChief Precise Engine...")
+    print("Starting IRS GOLD CFD Pro Engine...")
     
     active_trade_in_progress = False
+    trade_activated = False  # تأكيد عدم تفعيل الأهداف إلا بعد دخول السعر حيز التنفيذ
     target_tp = 0.0
     target_sl = 0.0
     trade_type = None
@@ -90,6 +89,7 @@ def auto_market_monitor():
                     if USER_CHAT_ID:
                         bot.send_message(USER_CHAT_ID, "Session Closed: Pending trade cancelled automatically to protect capital.", parse_mode="Markdown")
                     active_trade_in_progress = False
+                    trade_activated = False
                 time.sleep(300)
                 continue
 
@@ -100,36 +100,51 @@ def auto_market_monitor():
                     exact_time = get_current_time_with_seconds()
                     trade_timer += 30  
                     
-                    if trade_timer >= 1200:  
-                        bot.send_message(USER_CHAT_ID, f"Risk Management: Pending trade expired after 20 minutes without activation.\nTime: `{exact_time}`", parse_mode="Markdown")
+                    # إلغاء الأمر المعلق إذا لم يتم تفعيله خلال 20 دقيقة لمنع الأوامر العالقة
+                    if not trade_activated and trade_timer >= 1200:  
+                        bot.send_message(USER_CHAT_ID, f"Risk Management: Pending order expired after 20 minutes without activation.\nTime: `{exact_time}`", parse_mode="Markdown")
                         active_trade_in_progress = False
                         trade_timer = 0
                         time.sleep(30)
                         continue
 
+                    # مرحلة مراقبة التفعيل والصفقة بحذر تام
                     if trade_type == "BUY-STOP":
-                        if current_price >= entry_price_val:
+                        if not trade_activated:
+                            if current_price >= entry_price_val:
+                                trade_activated = True
+                                bot.send_message(USER_CHAT_ID, f"Trade Activated (BUY): Price reached entry point `{entry_price_val}`\nTime: `{exact_time}`", parse_mode="Markdown")
+                        else:
                             if current_price >= target_tp:
                                 virtual_balance += 80.0  
                                 bot.send_message(USER_CHAT_ID, f"Target Reached (TP)! +80$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
+                                trade_activated = False
                                 trade_timer = 0
                             elif current_price <= target_sl:
                                 virtual_balance -= 40.0  
                                 bot.send_message(USER_CHAT_ID, f"Stop Loss Hit (SL). -40$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
+                                trade_activated = False
                                 trade_timer = 0
+                                
                     elif trade_type == "SELL-STOP":
-                        if current_price <= entry_price_val:
+                        if not trade_activated:
+                            if current_price <= entry_price_val:
+                                trade_activated = True
+                                bot.send_message(USER_CHAT_ID, f"Trade Activated (SELL): Price reached entry point `{entry_price_val}`\nTime: `{exact_time}`", parse_mode="Markdown")
+                        else:
                             if current_price <= target_tp:
                                 virtual_balance += 80.0
                                 bot.send_message(USER_CHAT_ID, f"Target Reached (TP)! +80$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
+                                trade_activated = False
                                 trade_timer = 0
                             elif current_price >= target_sl:
                                 virtual_balance -= 40.0
                                 bot.send_message(USER_CHAT_ID, f"Stop Loss Hit (SL). -40$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
+                                trade_activated = False
                                 trade_timer = 0
                     
                     time.sleep(30)
@@ -137,16 +152,17 @@ def auto_market_monitor():
 
                 price_diff = round(current_price - open_price, 2)
                 
+                # منع إعطاء صفقات وراء بعض: الشرط الأساسي ألا تكون هناك أي صفقة نشطة حالياً
                 if abs(price_diff) >= 2.5 and not active_trade_in_progress:
                     exact_time = get_current_time_with_seconds()
                     
                     if price_diff > 0:
-                        entry_price = round(current_price + 2.5, 2)
-                        sl = round(entry_price - 4.0, 2)
-                        tp = round(entry_price + 8.0, 2)
+                        entry_price = round(current_price + 1.5, 2)
+                        sl = round(entry_price - 3.5, 2)
+                        tp = round(entry_price + 7.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - XCHIEF (BUY-STOP)\n\n"
+                            f"IRS GOLD - CFD PRO (BUY-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
                             f"Current Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
@@ -157,12 +173,12 @@ def auto_market_monitor():
                         trade_type = "BUY-STOP"
                         entry_price_val = entry_price
                     else:
-                        entry_price = round(current_price - 2.5, 2)
-                        sl = round(entry_price + 4.0, 2)
-                        tp = round(entry_price - 8.0, 2)
+                        entry_price = round(current_price - 1.5, 2)
+                        sl = round(entry_price + 3.5, 2)
+                        tp = round(entry_price - 7.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - XCHIEF (SELL-STOP)\n\n"
+                            f"IRS GOLD - CFD PRO (SELL-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
                             f"Current Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
@@ -176,6 +192,7 @@ def auto_market_monitor():
                     bot.send_message(USER_CHAT_ID, alert_msg, parse_mode="Markdown")
                     
                     active_trade_in_progress = True
+                    trade_activated = False
                     target_tp = tp
                     target_sl = sl
                     trade_timer = 0  
@@ -198,7 +215,7 @@ def send_welcome(bot_message):
     
     bot.reply_to(
         bot_message, 
-        "Welcome to IRS GOLD XChief Edition.\nSystem is active with precise price matching.",
+        "Welcome to IRS GOLD CFD Professional Edition.\nSystem is active with strict order isolation and precise pricing.",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -213,7 +230,7 @@ def callback_inline(call):
         price, _ = get_market_data()
         exact_time = get_current_time_with_seconds()
         if price:
-            bot.send_message(call.message.chat.id, f"XChief Gold Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"CFD Gold Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")
         else:
             bot.send_message(call.message.chat.id, "Connecting to market feed...")
             
@@ -223,7 +240,7 @@ def callback_inline(call):
         
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "Bot is running smoothly with precise pricing.", parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "Bot is running smoothly with strict single-trade logic.", parse_mode="Markdown")
 
 if __name__ == "__main__":
     t_web = Thread(target=run_web)
@@ -235,5 +252,5 @@ if __name__ == "__main__":
     t_monitor = Thread(target=auto_market_monitor)
     t_monitor.start()
     
-    print("XChief Precise Bot is polling successfully...")
+    print("CFD Pro Bot is polling successfully...")
     bot.infinity_polling()

@@ -53,8 +53,7 @@ def get_market_data():
             raw_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
             
-            # تعديل معامل التصحيح لضبط الـ 4 نقاط بدقة متناهية مع XChief
-            # إذا كان السعر أعلى بـ 4 نقاط، نقوم بزيادة قيمة الخصم بمقدار 0.40 (أو تعديل الرقم حسب المنصة)
+            # معامل التصحيح المحدث لضبط الفارق مع منصة XChief بدقة
             price_offset = -12.40 
             
             current_price = round(raw_price + price_offset, 2)
@@ -226,6 +225,19 @@ def callback_inline(call):
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "🚀 **البوت يعمل بجهوزية تامة ودقة أسعار محسنة!**", parse_mode="Markdown")
+
+if __name__ == "__main__":
+    t_web = Thread(target=run_web)
+    t_web.start()
+    
+    t_ping = Thread(target=self_ping_engine)
+    t_ping.start()
+    
+    t_monitor = Thread(target=auto_market_monitor)
+    t_monitor.start()
+    
+    print("XChief Precise Bot is polling successfully...")
+    bot.infinity_polling()e.chat.id, "🚀 **البوت يعمل بجهوزية تامة ودقة أسعار محسنة!**", parse_mode="Markdown")
 
 if __name__ == "__main__":
     t_web = Thread(target=run_web)

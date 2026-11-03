@@ -18,7 +18,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "IRS GOLD Commercial Pro Bot is Running!"
+    return "IRS GOLD XChief Commercial Pro Bot is Running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
@@ -53,6 +53,7 @@ def get_market_data():
             raw_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
             
+            # معامل تصحيح دقيق ومخصص لأسعار منصة XChief للذهب
             price_offset = -12.0 
             
             current_price = round(raw_price + price_offset, 2)
@@ -70,7 +71,7 @@ def get_current_time_with_seconds():
 
 def auto_market_monitor():
     global USER_CHAT_ID
-    print("Starting IRS GOLD Real-Trader Engine...")
+    print("Starting IRS GOLD XChief Real-Trader Engine...")
     
     active_trade_in_progress = False
     target_tp = 0.0
@@ -87,7 +88,7 @@ def auto_market_monitor():
             if not is_active_trading_session():
                 if active_trade_in_progress:
                     if USER_CHAT_ID:
-                        bot.send_message(USER_CHAT_ID, "Session Closed: Pending trade cancelled automatically to protect capital.", parse_mode="Markdown")
+                        bot.send_message(USER_CHAT_ID, "⏰ **إغلاق جلسة التداول:** تم إلغاء الصفقة المعلقة تلقائياً لحماية رأس المال مع نهاية جلسات السيولة.", parse_mode="Markdown")
                     active_trade_in_progress = False
                 time.sleep(300)
                 continue
@@ -100,7 +101,7 @@ def auto_market_monitor():
                     trade_timer += 30  
                     
                     if trade_timer >= 1200:  
-                        bot.send_message(USER_CHAT_ID, f"Risk Management: Pending trade expired after 20 minutes without activation.\nTime: `{exact_time}`", parse_mode="Markdown")
+                        bot.send_message(USER_CHAT_ID, f"🛡️ **إدارة المخاطر (إلغاء احترافي):**\nلم يتم تفعيل الأمر المعلق وابتعد السعر عنه بعد 20 دقيقة، تم إلغاء الصفقة.\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                         active_trade_in_progress = False
                         trade_timer = 0
                         time.sleep(30)
@@ -110,24 +111,24 @@ def auto_market_monitor():
                         if current_price >= entry_price_val:
                             if current_price >= target_tp:
                                 virtual_balance += 80.0  
-                                bot.send_message(USER_CHAT_ID, f"Target Reached (TP)! +80$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🎯 **تحقيق هدف الصفقة بنجاح (TP)!** ✅\n💰 الربح المحاكى: `+80$`\n💼 الرصيد الافتراضي المحدث: `{virtual_balance}$`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
                                 trade_timer = 0
                             elif current_price <= target_sl:
                                 virtual_balance -= 40.0  
-                                bot.send_message(USER_CHAT_ID, f"Stop Loss Hit (SL). -40$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🛑 **ضرب وقف الخسارة (SL).** ❌\n📉 الخسارة المحاكات: `-40$`\n💼 الرصيد الافتراضي المحدث: `{virtual_balance}$`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
                                 trade_timer = 0
                     elif trade_type == "SELL-STOP":
                         if current_price <= entry_price_val:
                             if current_price <= target_tp:
                                 virtual_balance += 80.0
-                                bot.send_message(USER_CHAT_ID, f"Target Reached (TP)! +80$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🎯 **تحقيق هدف الصفقة بنجاح (TP)!** ✅\n💰 الربح المحاكى: `+80$`\n💼 الرصيد الافتراضي المحدث: `{virtual_balance}$`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
                                 trade_timer = 0
                             elif current_price >= target_sl:
                                 virtual_balance -= 40.0
-                                bot.send_message(USER_CHAT_ID, f"Stop Loss Hit (SL). -40$\nVirtual Balance: `{virtual_balance}$`\nTime: `{exact_time}`", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🛑 **ضرب وقف الخسارة (SL).** ❌\n📉 الخسارة المحاكات: `-40$`\n💼 الرصيد الافتراضي المحدث: `{virtual_balance}$`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
                                 active_trade_in_progress = False
                                 trade_timer = 0
                     
@@ -145,13 +146,13 @@ def auto_market_monitor():
                         tp = round(entry_price + 8.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - PRO TRADER (BUY-STOP)\n\n"
-                            f"Time: `{exact_time}`\n"
-                            f"Current Price: `{current_price}`\n"
-                            f"Entry Pending: `{entry_price}`\n"
-                            f"Stop Loss (SL): `{sl}`\n"
-                            f"Take Profit (TP): `{tp}`\n"
-                            f"Lot Size: `{lot_size}`"
+                            f"💎 **IRS GOLD - XCHIEF (BUY-STOP)** 💎\n\n"
+                            f"⏰ وقت الإصدار: `{exact_time}`\n"
+                            f"🟡 السعر الفوري: `{current_price}`\n"
+                            f"🎯 الدخول المعلق: `{entry_price}`\n"
+                            f"🔴 وقف الخسارة (SL): `{sl}`\n"
+                            f"🟢 جني الأرباح (TP): `{tp}`\n"
+                            f"📊 حجم العقد: `{lot_size}`"
                         )
                         trade_type = "BUY-STOP"
                         entry_price_val = entry_price
@@ -161,13 +162,13 @@ def auto_market_monitor():
                         tp = round(entry_price - 8.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - PRO TRADER (SELL-STOP)\n\n"
-                            f"Time: `{exact_time}`\n"
-                            f"Current Price: `{current_price}`\n"
-                            f"Entry Pending: `{entry_price}`\n"
-                            f"Stop Loss (SL): `{sl}`\n"
-                            f"Take Profit (TP): `{tp}`\n"
-                            f"Lot Size: `{lot_size}`"
+                            f"💎 **IRS GOLD - XCHIEF (SELL-STOP)** 💎\n\n"
+                            f"⏰ وقت الإصدار: `{exact_time}`\n"
+                            f"🟡 السعر الفوري: `{current_price}`\n"
+                            f"🎯 الدخول المعلق: `{entry_price}`\n"
+                            f"🔴 وقف الخسارة (SL): `{sl}`\n"
+                            f"🟢 جني الأرباح (TP): `{tp}`\n"
+                            f"📊 حجم العقد: `{lot_size}`"
                         )
                         trade_type = "SELL-STOP"
                         entry_price_val = entry_price
@@ -190,14 +191,15 @@ def send_welcome(bot_message):
     USER_CHAT_ID = bot_message.chat.id
     
     markup = types.InlineKeyboardMarkup(row_width=2)
-    item1 = types.InlineKeyboardButton("Live Price", callback_data="live_price")
-    item2 = types.InlineKeyboardButton("Virtual Wallet", callback_data="wallet_status")
-    item3 = types.InlineKeyboardButton("Bot Status", callback_data="start_scalping")
+    item1 = types.InlineKeyboardButton("📈 السعر المباشر", callback_data="live_price")
+    item2 = types.InlineKeyboardButton("💼 المحفظة الافتراضية", callback_data="wallet_status")
+    item3 = types.InlineKeyboardButton("🚀 حالة النظام", callback_data="start_scalping")
     markup.add(item1, item2, item3)
     
     bot.reply_to(
         bot_message, 
-        "Welcome to IRS GOLD Real-Trader Commercial Edition.\nSystem is active with professional risk management.",
+        "أهلاً بك يا إدريس في المقر الرئيسي لـ **IRS GOLD (XChief Pro Edition)** 🤖💼\n\n"
+        "النظام يعمل الآن بكفاءة عالية ومخصص لأسعار منصة XChief مع إدارة مخاطر صارمة.",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -212,17 +214,17 @@ def callback_inline(call):
         price, _ = get_market_data()
         exact_time = get_current_time_with_seconds()
         if price:
-            bot.send_message(call.message.chat.id, f"Live Gold Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🟡 **سعر الذهب (XChief):** `{price}`\n⏰ التوقيت: `{exact_time}`", parse_mode="Markdown")
         else:
-            bot.send_message(call.message.chat.id, "Connecting to feed...")
+            bot.send_message(call.message.chat.id, f"⚠️ جاري الاتصال بالبث المباشر...")
             
     elif call.data == "wallet_status":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "💼 **حالة محفظة المتداول الحقيقي:**\n- رأس المال: `1000.0$`\n- حجم العقد: `0.10`\n- إدارة المخاطر: `نشطة بنسبة 100%`", parse_mode="Markdown")
         
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "Pro Trader Bot is running smoothly.", parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "🚀 **البوت يعمل بجهوزية تامة وعقلية تجارية احترافية!**", parse_mode="Markdown")
 
 if __name__ == "__main__":
     t_web = Thread(target=run_web)
@@ -234,5 +236,5 @@ if __name__ == "__main__":
     t_monitor = Thread(target=auto_market_monitor)
     t_monitor.start()
     
-    print("Real-Trader Bot is polling successfully...")
+    print("XChief Pro Bot is polling successfully...")
     bot.infinity_polling()

@@ -18,7 +18,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "IRS GOLD Momentum Pro Bot is Running!"
+    return "IRS GOLD CFD Pro Bot is Running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
@@ -47,8 +47,12 @@ def is_active_trading_session():
 
 def get_market_data():
     try:
-        ticker = yf.Ticker("GC=F")
+        ticker = yf.Ticker("XAUUSD=X")
         data = ticker.history(period="1d", interval="1m")
+        if data.empty or len(data) < 2:
+            ticker = yf.Ticker("GC=F")
+            data = ticker.history(period="1d", interval="1m")
+            
         if not data.empty and len(data) >= 2:
             current_price = round(data['Close'].iloc[-1], 2)
             open_price = round(data['Open'].iloc[-1], 2)
@@ -64,7 +68,7 @@ def get_current_time_with_seconds():
 
 def auto_market_monitor():
     global USER_CHAT_ID
-    print("Starting IRS GOLD Momentum Pro Engine...")
+    print("Starting IRS GOLD CFD Pro Engine...")
     
     active_trade_in_progress = False
     trade_activated = False
@@ -145,7 +149,6 @@ def auto_market_monitor():
 
                 price_diff = round(current_price - open_price, 2)
                 
-                # منع تداخل الصفقات والتداول المفرط (صفقة واحدة نشطة في المرة)
                 if abs(price_diff) >= 2.0 and not active_trade_in_progress:
                     exact_time = get_current_time_with_seconds()
                     
@@ -155,7 +158,7 @@ def auto_market_monitor():
                         tp = round(entry_price + 6.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - MOMENTUM (BUY-STOP)\n\n"
+                            f"IRS GOLD - CFD PRO (BUY-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
                             f"Reference Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
@@ -171,7 +174,7 @@ def auto_market_monitor():
                         tp = round(entry_price - 6.0, 2)
                         
                         alert_msg = (
-                            f"IRS GOLD - MOMENTUM (SELL-STOP)\n\n"
+                            f"IRS GOLD - CFD PRO (SELL-STOP)\n\n"
                             f"Time: `{exact_time}`\n"
                             f"Reference Price: `{current_price}`\n"
                             f"Entry Pending: `{entry_price}`\n"
@@ -208,7 +211,7 @@ def send_welcome(bot_message):
     
     bot.reply_to(
         bot_message, 
-        "Welcome to IRS GOLD Momentum Edition.\nSystem is active with strict trade isolation and dynamic momentum tracking.",
+        "Welcome to IRS GOLD CFD Professional Edition.\nSystem is active with strict order isolation and precise pricing.",
         reply_markup=markup,
         parse_mode="Markdown"
     )
@@ -223,13 +226,30 @@ def callback_inline(call):
         price, _ = get_market_data()
         exact_time = get_current_time_with_seconds()
         if price:
-            bot.send_message(call.message.chat.id, f"Market Reference Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"CFD Gold Price: `{price}`\nTime: `{exact_time}`", parse_mode="Markdown")
         else:
             bot.send_message(call.message.chat.id, "Connecting to market feed...")
             
     elif call.data == "wallet_status":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
+        
+    elif call.data == "start_scalping":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Bot is running smoothly with strict single-trade logic.", parse_mode="Markdown")
+
+if __name__ == "__main__":
+    t_web = Thread(target=run_web)
+    t_web.start()
+    
+    t_ping = Thread(target=self_ping_engine)
+    t_ping.start()
+    
+    t_monitor = Thread(target=auto_market_monitor)
+    t_monitor.start()
+    
+    print("CFD Pro Bot is polling successfully...")
+    bot.infinity_polling()chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
         
     elif call.data == "start_scalping":
         bot.answer_callback_query(call.id)

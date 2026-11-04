@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -12,9 +13,15 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes
 )
+
 import uvicorn
 
 from strategy import GoldStrategy, SignalBook
+
+
+# ==============================
+# CONFIGURATION
+# ==============================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,10 +32,12 @@ log = logging.getLogger("AL-GHRAM")
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 FEED_SECRET = os.getenv("FEED_SECRET", "").strip()
+
 PORT = int(os.getenv("PORT", "10000"))
 
 ADMIN_IDS = {
-    int(x) for x in os.getenv("ADMIN_IDS", "").split(",")
+    int(x)
+    for x in os.getenv("ADMIN_IDS", "").split(",")
     if x.strip().isdigit()
 }
 
@@ -39,25 +48,38 @@ telegram_app = None
 subscribers = set(ADMIN_IDS)
 
 
+# ==============================
+# SUBSCRIBERS
+# ==============================
+
 def load_subscribers():
-    global subscribers
 
     try:
         with open("subscribers.json", "r") as f:
-            subscribers.update(int(x) for x in json.load(f))
-    except Exception:
+            data = json.load(f)
+
+        subscribers.update(int(x) for x in data)
+
+    except (FileNotFoundError, ValueError, TypeError):
         pass
 
 
 def save_subscribers():
+
     try:
         with open("subscribers.json", "w") as f:
             json.dump(list(subscribers), f)
+
     except Exception:
         log.exception("Subscriber save error")
 
 
+# ==============================
+# TELEGRAM MENU
+# ==============================
+
 def menu():
+
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
@@ -80,6 +102,10 @@ def menu():
     ])
 
 
+# ==============================
+# TELEGRAM COMMANDS
+# ==============================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -89,32 +115,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "👑 AL-GHRAM AI TRADING\n\n"
-        "Gold CFD | xChief Classic+\n"
-        "نظام تحليل الذهب الذكي\n\n"
-        "مصدر الأسعار: حساب MT5 الخاص بك.\n\n"
-        "⚠️ هذه النسخة تجريبية وترسل إشارات فقط.",
+        "Gold CFD | xChief Classic+\n\n"
+        "نظام تحليل الذهب الذكي.\n\n"
+        "مصدر الأسعار: جسر MT5.\n\n"
+        "⚠️ النسخة الحالية تجريبية وترسل إشارات فقط.",
         reply_markup=menu()
     )
 
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    active = book.active
+    if book.active:
 
-    if active:
-        state = (
-            f"{active['order_type']}\n"
-            f"Entry: {active['entry']}\n"
-            f"Status: {active['status']}"
+        active = book.active
+
+        message = (
+            f"النوع: {active['order_type']}\n"
+            f"الدخول: {active['entry']}\n"
+            f"الحالة: {active['status']}"
         )
+
     else:
-        state = "لا توجد إشارة نشطة"
+
+        message = "لا توجد إشارة نشطة."
 
     await update.message.reply_text(
         "📊 AL-GHRAM STATUS\n\n"
-        f"Symbol: {book.symbol}\n"
-        f"Signals: {book.daily_count}/4\n\n"
-        f"{state}"
+        f"الرمز: {book.symbol}\n"
+        f"الإشارات اليومية: {book.daily_count}/4\n\n"
+        f"{message}"
     )
 
 
@@ -122,22 +151,23 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🧠 AL-GHRAM LQG ENGINE\n\n"
-        "1. Liquidity Mapping\n"
-        "2. Volume Intelligence\n"
+        "1. Liquidity Analysis\n"
+        "2. Tick Volume Analysis\n"
         "3. Market Structure\n"
         "4. Support & Resistance\n"
         "5. ATR Volatility Filter\n"
         "6. London Session\n"
         "7. New York Session\n\n"
+        "Order: BUY STOP / SELL STOP\n"
         "Risk Reward: 1:2\n"
-        "Maximum Signals: 4\n"
-        "Active Signals: 1"
+        "Maximum Signals: 4"
     )
 
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     subscribers.add(update.effective_user.id)
+
     save_subscribers()
 
     await update.message.reply_text(
@@ -148,24 +178,29 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
+
     await query.answer()
 
     if query.data == "status":
 
         active = book.active
 
-        state = "لا توجد إشارة" if not active else active["status"]
+        state = (
+            active["status"]
+            if active
+            else "لا توجد إشارة نشطة"
+        )
 
         await query.edit_message_text(
             f"📊 حالة النظام\n\n"
             f"الحالة: {state}\n"
-            f"الإشارات اليومية: {book.daily_count}/4"
+            f"الإشارات: {book.daily_count}/4"
         )
 
     elif query.data == "rules":
 
         await query.edit_message_text(
-            "AL-GHRAM LQG\n\n"
+            "👑 AL-GHRAM LQG\n\n"
             "Liquidity + Volume + Structure\n"
             "BUY STOP / SELL STOP\n"
             "Risk Reward 1:2"
@@ -174,12 +209,17 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "subscribe":
 
         subscribers.add(query.from_user.id)
+
         save_subscribers()
 
         await query.edit_message_text(
             "✅ تم الاشتراك بنجاح."
         )
 
+
+# ==============================
+# BROADCAST
+# ==============================
 
 async def broadcast(message):
 
@@ -189,29 +229,42 @@ async def broadcast(message):
     for user_id in list(subscribers):
 
         try:
+
             await telegram_app.bot.send_message(
                 chat_id=user_id,
                 text=message
             )
 
         except Exception:
-            log.exception("Telegram send error")
 
+            log.exception(
+                "Failed to send message to %s",
+                user_id
+            )
+
+
+# ==============================
+# MARKET DATA MODEL
+# ==============================
 
 class Bar(BaseModel):
 
     time: str
+
     open: float
     high: float
     low: float
     close: float
+
     tick_volume: float = Field(ge=0)
 
 
 class FeedPayload(BaseModel):
 
     symbol: str
+
     timeframe: str = "M5"
+
     digits: int = Field(default=2, ge=0, le=8)
 
     bid: float = Field(gt=0)
@@ -223,16 +276,24 @@ class FeedPayload(BaseModel):
     )
 
 
+# ==============================
+# TELEGRAM STARTUP
+# ==============================
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
     global telegram_app
 
     if not BOT_TOKEN:
-        raise RuntimeError("Missing TELEGRAM_BOT_TOKEN")
+        raise RuntimeError(
+            "TELEGRAM_BOT_TOKEN is missing"
+        )
 
     if not FEED_SECRET:
-        raise RuntimeError("Missing FEED_SECRET")
+        raise RuntimeError(
+            "FEED_SECRET is missing"
+        )
 
     load_subscribers()
 
@@ -242,32 +303,52 @@ async def lifespan(app: FastAPI):
         .build()
     )
 
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(CommandHandler("status", status))
-    telegram_app.add_handler(CommandHandler("rules", rules))
-    telegram_app.add_handler(CommandHandler("subscribe", subscribe))
+    telegram_app.add_handler(
+        CommandHandler("start", start)
+    )
+
+    telegram_app.add_handler(
+        CommandHandler("status", status)
+    )
+
+    telegram_app.add_handler(
+        CommandHandler("rules", rules)
+    )
+
+    telegram_app.add_handler(
+        CommandHandler("subscribe", subscribe)
+    )
 
     telegram_app.add_handler(
         CallbackQueryHandler(buttons)
     )
 
     await telegram_app.initialize()
+
     await telegram_app.start()
+
     await telegram_app.updater.start_polling(
         drop_pending_updates=True
     )
 
-    log.info("AL-GHRAM started")
+    log.info("AL-GHRAM started successfully")
 
     yield
 
     await telegram_app.updater.stop()
+
     await telegram_app.stop()
+
     await telegram_app.shutdown()
 
 
+# ==============================
+# FASTAPI
+# ==============================
+
 api = FastAPI(
     title="AL-GHRAM AI TRADING",
+    version="1.0.0",
     lifespan=lifespan
 )
 
@@ -292,36 +373,44 @@ async def health():
     }
 
 
+# ==============================
+# RECEIVE CFD MARKET DATA
+# ==============================
+
 @api.post("/feed/bars")
 async def receive_bars(
     payload: FeedPayload,
     x_feed_secret: str | None = Header(default=None)
 ):
 
-    if x_feed_secret != FEED_SECRET:
+    if not FEED_SECRET or x_feed_secret != FEED_SECRET:
+
         raise HTTPException(
             status_code=401,
-            detail="Invalid secret"
+            detail="Invalid feed secret"
         )
 
     symbol = payload.symbol.upper().strip()
 
     if "XAUUSD" not in symbol:
+
         raise HTTPException(
             status_code=400,
             detail="Only XAUUSD CFD is allowed"
         )
 
     if payload.ask < payload.bid:
+
         raise HTTPException(
             status_code=400,
             detail="Invalid Bid/Ask"
         )
 
     if payload.timeframe.upper() != "M5":
+
         raise HTTPException(
             status_code=400,
-            detail="M5 only"
+            detail="M5 timeframe required"
         )
 
     bars = [
@@ -342,6 +431,7 @@ async def receive_bars(
     )
 
     for event in events:
+
         await broadcast(event)
 
     return {
@@ -352,63 +442,17 @@ async def receive_bars(
     }
 
 
+# ==============================
+# RUN SERVER
+# ==============================
+
 if __name__ == "__main__":
 
     uvicorn.run(
         api,
         host="0.0.0.0",
         port=PORT
-)            if not t:
-                    continue
-                score = 30 + (15 if wick / rng >= 0.55 else 8) + vpts + bp + (10 if L["w"] >= 2 else 4) + 10
-                out.append(dict(symbol=sym, side=side, score=score, setup="كنس سيولة + رفض",
-                                detail=f"كنس {L['name']} | فوليوم x{vr:.1f} | الاتجاه الأكبر: {BIAS_AR[bias]}", **t))
-    return out
-
-
-def setup_coil(sym, m15, levels, bias, avg, spread, bid, ask):
-    w = m15[-10:]
-    a, b = w[:5], w[5:]
-    r1, r2 = mean(c["h"] - c["l"] for c in a), mean(c["h"] - c["l"] for c in b)
-    if r1 <= 0 or r2 > 0.75 * r1:
-        return []
-    if not (max(c["h"] for c in a) > max(c["h"] for c in b) and min(c["l"] for c in a) < min(c["l"] for c in b)):
-        return []
-    top, bot = max(c["h"] for c in w[-6:]), min(c["l"] for c in w[-6:])
-    v1, v2 = mean(c["v"] for c in a), mean(c["v"] for c in b)
-    vpts = 15 if v2 < 0.85 * v1 else 0
-    out = []
-    for side in ("BUY", "SELL"):
-        if side == "BUY":
-            near = any(L["side"] == "low" and abs(bot - L["p"]) <= 2 * avg for L in levels)
-            bp = 25 if bias == "up" else 10 if bias == "range" else 0
-        else:
-            near = any(L["side"] == "high" and abs(top - L["p"]) <= 2 * avg for L in levels)
-            bp = 25 if bias == "down" else 10 if bias == "range" else 0
-        if not near or bp == 0:
-            continue
-        t = trade_levels(side, top, bot, avg, spread, bid, ask, levels)
-        if not t:
-            continue
-        score = 30 + vpts + 20 + bp + 10
-        out.append(dict(symbol=sym, side=side, score=score, setup="انضغاط هندسي عند دعم/مقاومة",
-                        detail=f"مثلث انضغاط | الاتجاه الأكبر: {BIAS_AR[bias]}", **t))
-    return out
-
-
-def analyze(sym, m15, h1, d1, bid, ask):
-    if len(m15) < 60 or len(h1) < 80 or not d1:
-        return []
-    if (now_utc() - m15[-1]["dt"]).total_seconds() > 45 * 60:
-        return []
-    spread = ask - bid
-    avg = mean(c["h"] - c["l"] for c in m15[-20:])
-    h1avg = mean(c["h"] - c["l"] for c in h1[-24:])
-    if avg <= 0 or spread > 0.35 * avg:
-        return []
-    hi, lo = pivots(h1[-150:], 3)
-    bias = bias_of(hi, lo)
-    levels = build_levels(m15, d1, hi, lo, h1avg * 0.25)
+            ) lo, h1avg * 0.25)
     return (setup_sweep(sym, m15, levels, bias, avg, spread, bid, ask)
             + setup_coil(sym, m15, levels, bias, avg, spread, bid, ask))
 

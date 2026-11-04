@@ -10,7 +10,6 @@ import pytz
 import urllib.request
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-# تم دمج مفتاح Twelve Data API مباشرة هنا لضمان عمل السيرفر واستقرار الأسعار فوراً
 TWELVE_API_KEY = "308ab9dbd5744402b637d0b65b325aea"
 
 bot = telebot.TeleBot(TOKEN)
@@ -231,6 +230,25 @@ def callback_inline(call):
             bot.send_message(call.message.chat.id, "Connecting to live API feed...")
             
     elif call.data == "wallet_status":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
+        
+    elif call.data == "start_scalping":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Bot is running smoothly with live API pricing.", parse_mode="Markdown")
+
+if __name__ == "__main__":
+    t_web = Thread(target=run_web)
+    t_web.start()
+    
+    t_ping = Thread(target=self_ping_engine)
+    t_ping.start()
+    
+    t_monitor = Thread(target=auto_market_monitor)
+    t_monitor.start()
+    
+    print("Live API Pro Bot is polling successfully...")
+    bot.infinity_polling()"wallet_status":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
         

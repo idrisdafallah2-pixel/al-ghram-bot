@@ -1,278 +1,364 @@
-# -*- coding: utf-8 -*-
-"""
-Telegram Signals Bot - Price Action / Liquidity / Volume / Geometry
-- بدون مؤشرات | BUY STOP / SELL STOP فقط | R:R = 1:2
-- جلستا لندن ونيويورك فقط | صفقة واحدة في كل مرة
-- أسعار CFD من OANDA (حساب Demo مجاني)
-
-Environment variables:
-  TELEGRAM_TOKEN, OANDA_TOKEN, OANDA_ACCOUNT_ID
-  CHAT_IDS (مستحسن)، ACCOUNT_BALANCE، RISK_PCT، MIN_SCORE، SYMBOLS
-"""
 import os
 import json
-import time
-import asyncio
 import logging
-import threading
-from statistics import mean
-from datetime import datetime, timezone, time as dtime
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from zoneinfo import ZoneInfo
+from contextlib import asynccontextmanager
 
-import httpx
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes
+)
+import uvicorn
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("signals-bot")
+from strategy import GoldStrategy, SignalBook
 
-# ───────────── الإعدادات ─────────────
-TOKEN = os.environ["TELEGRAM_TOKEN"]
-OANDA_TOKEN = os.environ["OANDA_TOKEN"]
-OANDA_ACCOUNT = os.environ["OANDA_ACCOUNT_ID"]
-OANDA_HOST = os.getenv("OANDA_HOST", "https://api-fxpractice.oanda.com")
-CHAT_IDS = {int(x) for x in os.getenv("CHAT_IDS", "").replace(" ", "").split(",") if x}
-BALANCE = float(os.getenv("ACCOUNT_BALANCE", "1000"))
-RISK_PCT = float(os.getenv("RISK_PCT", "1"))
-MIN_SCORE = int(os.getenv("MIN_SCORE", "75"))
-RR = 2.0
-MAX_SIGNALS_DAY = int(os.getenv("MAX_SIGNALS_DAY", "8"))
-MAX_LOSSES_DAY = int(os.getenv("MAX_LOSSES_DAY", "3"))
-PENDING_EXPIRY_MIN = int(os.getenv("PENDING_EXPIRY_MIN", "120"))
-COOLDOWN_MIN = int(os.getenv("COOLDOWN_MIN", "30"))
-BE_AT_1R = os.getenv("BE_AT_1R", "false").lower() == "true"
-SCAN_SEC = int(os.getenv("SCAN_SEC", "30"))
-MONITOR_SEC = int(os.getenv("MONITOR_SEC", "10"))
-STATE_FILE = os.getenv("STATE_FILE", "state.json")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
-LON, NY = ZoneInfo("Europe/London"), ZoneInfo("America/New_York")
+log = logging.getLogger("AL-GHRAM")
 
-ALL_SYMBOLS = {
-    "XAUUSD": dict(inst="XAU_USD",    digits=2, pip=0.1,    contract=100,    quote="USD"),
-    "EURUSD": dict(inst="EUR_USD",    digits=5, pip=0.0001, contract=100000, quote="USD"),
-    "GBPUSD": dict(inst="GBP_USD",    digits=5, pip=0.0001, contract=100000, quote="USD"),
-    "USDJPY": dict(inst="USD_JPY",    digits=3, pip=0.01,   contract=100000, quote="JPY"),
-    "NAS100": dict(inst="NAS100_USD", digits=1, pip=1.0,    contract=1,      quote="USD"),
-    "US30":   dict(inst="US30_USD",   digits=1, pip=1.0,    contract=1,      quote="USD"),
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+FEED_SECRET = os.getenv("FEED_SECRET", "").strip()
+PORT = int(os.getenv("PORT", "10000"))
+
+ADMIN_IDS = {
+    int(x) for x in os.getenv("ADMIN_IDS", "").split(",")
+    if x.strip().isdigit()
 }
-_enabled = [s.strip().upper() for s in os.getenv("SYMBOLS", ",".join(ALL_SYMBOLS)).split(",")]
-SYMBOLS = {k: v for k, v in ALL_SYMBOLS.items() if k in _enabled}
 
-HDR = {"Authorization": f"Bearer {OANDA_TOKEN}"}
-LOCK = asyncio.Lock()
+strategy = GoldStrategy()
+book = SignalBook(max_daily_signals=4)
 
-# ───────────── الحالة ─────────────
-state = dict(next_id=1, signal=None, day=None, day_signals=0, day_losses=0,
-             stats=dict(win=0, loss=0, be=0, cancel=0, r=0.0), cooldown={}, chats=[])
+telegram_app = None
+subscribers = set(ADMIN_IDS)
 
 
-def load_state():
+def load_subscribers():
+    global subscribers
+
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
-            state.update(json.load(f))
+        with open("subscribers.json", "r") as f:
+            subscribers.update(int(x) for x in json.load(f))
     except Exception:
         pass
 
 
-def save_state():
+def save_subscribers():
     try:
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False)
-    except Exception as e:
-        log.warning("save_state: %s", e)
+        with open("subscribers.json", "w") as f:
+            json.dump(list(subscribers), f)
+    except Exception:
+        log.exception("Subscriber save error")
 
 
-def now_utc():
-    return datetime.now(timezone.utc)
+def menu():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "📊 حالة النظام",
+                callback_data="status"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📈 الاستراتيجية",
+                callback_data="rules"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔔 الاشتراك",
+                callback_data="subscribe"
+            )
+        ]
+    ])
 
 
-def reset_day():
-    d = now_utc().strftime("%Y-%m-%d")
-    if state["day"] != d:
-        state.update(day=d, day_signals=0, day_losses=0)
-        save_state()
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    subscribers.add(user_id)
+    save_subscribers()
+
+    await update.message.reply_text(
+        "👑 AL-GHRAM AI TRADING\n\n"
+        "Gold CFD | xChief Classic+\n"
+        "نظام تحليل الذهب الذكي\n\n"
+        "مصدر الأسعار: حساب MT5 الخاص بك.\n\n"
+        "⚠️ هذه النسخة تجريبية وترسل إشارات فقط.",
+        reply_markup=menu()
+    )
 
 
-def fmt(sym, p):
-    return f"{p:.{SYMBOLS[sym]['digits']}f}"
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    active = book.active
 
-def session_info(dt=None):
-    dt = dt or now_utc()
-    l, n = dt.astimezone(LON), dt.astimezone(NY)
-
-    def left(x, end):
-        return (end.hour * 60 + end.minute) - (x.hour * 60 + x.minute)
-
-    act = []
-    if l.weekday() < 5 and dtime(8, 0) <= l.time() < dtime(16, 0):
-        act.append(("لندن", left(l, dtime(16, 0))))
-    if n.weekday() < 5 and dtime(8, 30) <= n.time() < dtime(16, 0):
-        act.append(("نيويورك", left(n, dtime(16, 0))))
-    return max(act, key=lambda x: x[1]) if act else None
-
-
-# ───────────── بيانات OANDA (CFD) ─────────────
-async def get_candles(http, inst, gran, count):
-    r = await http.get(f"{OANDA_HOST}/v3/instruments/{inst}/candles",
-                       params={"granularity": gran, "count": count, "price": "M"}, headers=HDR)
-    r.raise_for_status()
-    out = []
-    for c in r.json()["candles"]:
-        if not c.get("complete"):
-            continue
-        m = c["mid"]
-        out.append(dict(
-            dt=datetime.strptime(c["time"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc),
-            o=float(m["o"]), h=float(m["h"]), l=float(m["l"]), c=float(m["c"]), v=int(c["volume"])))
-    return out
-
-
-_cache = {}
-
-
-async def cached(http, inst, gran, count, ttl):
-    k, t = (inst, gran), time.time()
-    if k in _cache and t - _cache[k][0] < ttl:
-        return _cache[k][1]
-    d = await get_candles(http, inst, gran, count)
-    _cache[k] = (t, d)
-    return d
-
-
-async def get_prices(http, syms):
-    r = await http.get(f"{OANDA_HOST}/v3/accounts/{OANDA_ACCOUNT}/pricing",
-                       params={"instruments": ",".join(SYMBOLS[s]["inst"] for s in syms)}, headers=HDR)
-    r.raise_for_status()
-    inv = {SYMBOLS[s]["inst"]: s for s in syms}
-    out = {}
-    for p in r.json()["prices"]:
-        if p.get("bids") and p.get("asks") and p["instrument"] in inv:
-            out[inv[p["instrument"]]] = (float(p["bids"][0]["price"]), float(p["asks"][0]["price"]),
-                                         p.get("tradeable", True))
-    return out
-
-
-# ───────────── محرك التحليل (Price Action) ─────────────
-def pivots(cs, k=3):
-    hi, lo = [], []
-    for i in range(k, len(cs) - k):
-        seg = cs[i - k:i + k + 1]
-        if cs[i]["h"] == max(x["h"] for x in seg):
-            hi.append((i, cs[i]["h"]))
-        if cs[i]["l"] == min(x["l"] for x in seg):
-            lo.append((i, cs[i]["l"]))
-    return hi, lo
-
-
-def bias_of(hi, lo):
-    if len(hi) < 2 or len(lo) < 2:
-        return "range"
-    if hi[-1][1] > hi[-2][1] and lo[-1][1] > lo[-2][1]:
-        return "up"
-    if hi[-1][1] < hi[-2][1] and lo[-1][1] < lo[-2][1]:
-        return "down"
-    return "range"
-
-
-def cluster(piv, tol, side):
-    groups = []
-    for p in sorted(piv, key=lambda x: x[1]):
-        if groups and abs(p[1] - groups[-1][-1][1]) <= tol:
-            groups[-1].append(p)
-        else:
-            groups.append([p])
-    out = []
-    for g in groups:
-        price = max(x[1] for x in g) if side == "high" else min(x[1] for x in g)
-        name = ("EQH" if side == "high" else "EQL") + f"x{len(g)}" if len(g) >= 2 else "SWING"
-        out.append(dict(p=price, side=side, name=name, w=len(g)))
-    return out
-
-
-def build_levels(m15, d1, hi, lo, tol):
-    lv = []
-    pd = d1[-1]
-    lv += [dict(p=pd["h"], side="high", name="PDH", w=3), dict(p=pd["l"], side="low", name="PDL", w=3)]
-    today = m15[-1]["dt"].date()
-    asia = [c for c in m15 if c["dt"].date() == today and c["dt"].hour < 7]
-    if len(asia) >= 12:
-        lv += [dict(p=max(c["h"] for c in asia), side="high", name="ASIA-H", w=2),
-               dict(p=min(c["l"] for c in asia), side="low", name="ASIA-L", w=2)]
-    lv += cluster(hi, tol, "high") + cluster(lo, tol, "low")
-    return lv
-
-
-def trade_levels(side, top, bot, avg, spread, bid, ask, levels):
-    buf = max(spread * 1.5, 0.05 * avg)  # فرق التفعيل
-    if side == "BUY":
-        entry, sl = top + buf, bot - buf
-        risk = entry - sl
+    if active:
+        state = (
+            f"{active['order_type']}\n"
+            f"Entry: {active['entry']}\n"
+            f"Status: {active['status']}"
+        )
     else:
-        entry, sl = bot - buf, top + buf
-        risk = sl - entry
-    if risk < 0.6 * avg:
-        risk = 0.6 * avg
-        sl = entry - risk if side == "BUY" else entry + risk
-    if risk > 4 * avg or risk < 4 * spread:
-        return None
-    if side == "BUY" and ask >= entry - spread * 0.5:
-        return None
-    if side == "SELL" and bid <= entry + spread * 0.5:
-        return None
-    tp = entry + RR * risk if side == "BUY" else entry - RR * risk
-    if side == "BUY":
-        ahead = [L["p"] for L in levels if L["p"] > entry]
-        if ahead and min(ahead) < entry + 1.8 * risk:
-            return None
-    else:
-        ahead = [L["p"] for L in levels if L["p"] < entry]
-        if ahead and max(ahead) > entry - 1.8 * risk:
-            return None
-    return dict(entry=entry, sl=sl, tp=tp, risk=risk, buf=buf)
+        state = "لا توجد إشارة نشطة"
+
+    await update.message.reply_text(
+        "📊 AL-GHRAM STATUS\n\n"
+        f"Symbol: {book.symbol}\n"
+        f"Signals: {book.daily_count}/4\n\n"
+        f"{state}"
+    )
 
 
-BIAS_AR = {"up": "صاعد", "down": "هابط", "range": "عرضي"}
+async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text(
+        "🧠 AL-GHRAM LQG ENGINE\n\n"
+        "1. Liquidity Mapping\n"
+        "2. Volume Intelligence\n"
+        "3. Market Structure\n"
+        "4. Support & Resistance\n"
+        "5. ATR Volatility Filter\n"
+        "6. London Session\n"
+        "7. New York Session\n\n"
+        "Risk Reward: 1:2\n"
+        "Maximum Signals: 4\n"
+        "Active Signals: 1"
+    )
 
 
-def setup_sweep(sym, m15, levels, bias, avg, spread, bid, ask):
-    out = []
-    for k in (1, 2):
-        c = m15[-k]
-        after = m15[len(m15) - k + 1:]
-        rng = c["h"] - c["l"]
-        if rng < 0.8 * avg:
-            continue
-        base = m15[-k - 20:-k]
-        vavg = mean(x["v"] for x in base) or 1
-        vr = c["v"] / vavg
-        vpts = 20 if vr >= 1.5 else 10 if vr >= 1.2 else 0
-        for side in ("BUY", "SELL"):
-            for L in levels:
-                if side == "BUY" and L["side"] == "low":
-                    if not (c["l"] < L["p"] - 0.05 * avg and c["c"] > L["p"]):
-                        continue
-                    wick = min(c["o"], c["c"]) - c["l"]
-                    if any(x["l"] < c["l"] for x in after):
-                        continue
-                    bp = 15 if bias == "up" else 7 if bias == "range" else 0
-                elif side == "SELL" and L["side"] == "high":
-                    if not (c["h"] > L["p"] + 0.05 * avg and c["c"] < L["p"]):
-                        continue
-                    wick = c["h"] - max(c["o"], c["c"])
-                    if any(x["h"] > c["h"] for x in after):
-                        continue
-                    bp = 15 if bias == "down" else 7 if bias == "range" else 0
-                else:
-                    continue
-                if wick / rng < 0.4:
-                    continue
-                seg = [c] + after
-                top, bot = max(x["h"] for x in seg), min(x["l"] for x in seg)
-                t = trade_levels(side, top, bot, avg, spread, bid, ask, levels)
-                if not t:
+async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    subscribers.add(update.effective_user.id)
+    save_subscribers()
+
+    await update.message.reply_text(
+        "✅ تم تفعيل الاشتراك في التنبيهات."
+    )
+
+
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "status":
+
+        active = book.active
+
+        state = "لا توجد إشارة" if not active else active["status"]
+
+        await query.edit_message_text(
+            f"📊 حالة النظام\n\n"
+            f"الحالة: {state}\n"
+            f"الإشارات اليومية: {book.daily_count}/4"
+        )
+
+    elif query.data == "rules":
+
+        await query.edit_message_text(
+            "AL-GHRAM LQG\n\n"
+            "Liquidity + Volume + Structure\n"
+            "BUY STOP / SELL STOP\n"
+            "Risk Reward 1:2"
+        )
+
+    elif query.data == "subscribe":
+
+        subscribers.add(query.from_user.id)
+        save_subscribers()
+
+        await query.edit_message_text(
+            "✅ تم الاشتراك بنجاح."
+        )
+
+
+async def broadcast(message):
+
+    if telegram_app is None:
+        return
+
+    for user_id in list(subscribers):
+
+        try:
+            await telegram_app.bot.send_message(
+                chat_id=user_id,
+                text=message
+            )
+
+        except Exception:
+            log.exception("Telegram send error")
+
+
+class Bar(BaseModel):
+
+    time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    tick_volume: float = Field(ge=0)
+
+
+class FeedPayload(BaseModel):
+
+    symbol: str
+    timeframe: str = "M5"
+    digits: int = Field(default=2, ge=0, le=8)
+
+    bid: float = Field(gt=0)
+    ask: float = Field(gt=0)
+
+    bars: list[Bar] = Field(
+        min_length=40,
+        max_length=500
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    global telegram_app
+
+    if not BOT_TOKEN:
+        raise RuntimeError("Missing TELEGRAM_BOT_TOKEN")
+
+    if not FEED_SECRET:
+        raise RuntimeError("Missing FEED_SECRET")
+
+    load_subscribers()
+
+    telegram_app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("status", status))
+    telegram_app.add_handler(CommandHandler("rules", rules))
+    telegram_app.add_handler(CommandHandler("subscribe", subscribe))
+
+    telegram_app.add_handler(
+        CallbackQueryHandler(buttons)
+    )
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling(
+        drop_pending_updates=True
+    )
+
+    log.info("AL-GHRAM started")
+
+    yield
+
+    await telegram_app.updater.stop()
+    await telegram_app.stop()
+    await telegram_app.shutdown()
+
+
+api = FastAPI(
+    title="AL-GHRAM AI TRADING",
+    lifespan=lifespan
+)
+
+
+@api.get("/")
+async def home():
+
+    return {
+        "name": "AL-GHRAM AI TRADING",
+        "status": "online",
+        "mode": "signals_only"
+    }
+
+
+@api.get("/health")
+async def health():
+
+    return {
+        "ok": True,
+        "telegram": telegram_app is not None,
+        "market": "waiting for MT5"
+    }
+
+
+@api.post("/feed/bars")
+async def receive_bars(
+    payload: FeedPayload,
+    x_feed_secret: str | None = Header(default=None)
+):
+
+    if x_feed_secret != FEED_SECRET:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid secret"
+        )
+
+    symbol = payload.symbol.upper().strip()
+
+    if "XAUUSD" not in symbol:
+        raise HTTPException(
+            status_code=400,
+            detail="Only XAUUSD CFD is allowed"
+        )
+
+    if payload.ask < payload.bid:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Bid/Ask"
+        )
+
+    if payload.timeframe.upper() != "M5":
+        raise HTTPException(
+            status_code=400,
+            detail="M5 only"
+        )
+
+    bars = [
+        bar.model_dump()
+        for bar in payload.bars
+    ]
+
+    book.symbol = symbol
+
+    events = book.update_market(
+        bars=bars,
+        bid=payload.bid,
+        ask=payload.ask,
+        strategy=strategy,
+        symbol=symbol,
+        bar_time=bars[-1]["time"],
+        digits=payload.digits
+    )
+
+    for event in events:
+        await broadcast(event)
+
+    return {
+        "ok": True,
+        "symbol": symbol,
+        "events": len(events),
+        "active": book.active
+    }
+
+
+if __name__ == "__main__":
+
+    uvicorn.run(
+        api,
+        host="0.0.0.0",
+        port=PORT
+)            if not t:
                     continue
                 score = 30 + (15 if wick / rng >= 0.55 else 8) + vpts + bp + (10 if L["w"] >= 2 else 4) + 10
                 out.append(dict(symbol=sym, side=side, score=score, setup="كنس سيولة + رفض",

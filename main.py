@@ -1,8 +1,9 @@
 import os
 import json
 import logging
-from contextlib import asynccontextmanager
 from pathlib import Path
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Optional
 
 import uvicorn
@@ -18,200 +19,32 @@ from telegram.ext import (
 
 from strategy import GoldStrategy, SignalBook
 
-
-# -------------------- SETTINGS --------------------
-
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-logger = logging.getLogger("AL-GHRAM")
+
+log = logging.getLogger("AL-GHRAM")
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 FEED_SECRET = os.getenv("FEED_SECRET", "").strip()
 PORT = int(os.getenv("PORT", "10000"))
-SUBSCRIBERS_PATH = Path(os.getenv("SUBSCRIBERS_FILE", "subscribers.json"))
 
-ADMIN_IDS = {
-    int(value.strip())
-    for value in os.getenv("ADMIN_IDS", "").split(",")
-    if value.strip().isdigit()
-}
+SUBSCRIBERS_FILE = Path(
+    os.getenv("SUBSCRIBERS_FILE", "subscribers.json")
+)
 
 strategy = GoldStrategy()
-signal_book = SignalBook(max_daily_signals=4)
-subscribers = set(ADMIN_IDS)
+book = SignalBook(max_daily_signals=4)
+
+subscribers = set()
 telegram_app: Optional[Application] = None
+latest_market = None
 
 
-# -------------------- SUBSCRIBERS --------------------
-
-def load_subscribers():
-    try:
-        if SUBSCRIBERS_PATH.exists():
-            data = json.loads(SUBSCRIBERS_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                for item in data:
-                    try:
-                        subscribers.add(int(item))
-                    except (TypeError, ValueError):
-                        continue
-    except Exception:
-        logger.exception("Could not load subscribers")
-
-
-def save_subscribers():
-    try:
-        SUBSCRIBERS_PATH.write_text(
-            json.dumps(sorted(subscribers)),
-            encoding="utf-8",
-        )
-    except Exception:
-        logger.exception("Could not save subscribers")
-
-
-# -------------------- TELEGRAM UI --------------------
-
-def main_menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 حالة النظام", callback_data="status")],
-        [InlineKeyboardButton("📈 الاستراتيجية", callback_data="rules")],
-        [InlineKeyboardButton("🔔 تفعيل التنبيهات", callback_data="subscribe")],
-    ])
-
-
-def status_text():
-    active = signal_book.active
-
-    if active:
-        active_text = (
-            f"النوع: {active.get('order_type', '-')}\n"
-            f"الدخول: {active.get('entry', '-')}\n"
-            f"الحالة: {active.get('status', '-')}"
-        )
-    else:
-        active_text = "لا توجد إشارة نشطة."
-
-    return (
-        "📊 AL-GHRAM STATUS\n\n"
-        f"الرمز: {signal_book.symbol or 'بانتظار بيانات MT5'}\n"
-        f"الإشارات اليومية: {signal_book.daily_count}/4\n\n"
-        f"{active_text}\n\n"
-        "⚠️ الإشارات نظرية ولا تنفذ صفقات لدى الوسيط."
-    )
-
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-
-    if user is None or update.effective_message is None:
-        return
-
-    subscribers.add(user.id)
-    save_subscribers()
-
-    await update.effective_message.reply_text(
-        "👑 AL-GHRAM AI TRADING\n\n"
-        "الأداة مخصصة لتحليل XAUUSD CFD على إطار M5.\n"
-        "مصدر الأسعار: جسر MT5 الخاص بك.\n"
-        "الجلسات: لندن ونيويورك.\n"
-        "نوع الإشارات: BUY STOP / SELL STOP.\n"
-        "نسبة العائد إلى المخاطرة المستهدفة: 1:2.\n\n"
-        "⚠️ هذه النسخة ترسل إشارات نظرية فقط، ولا تفتح صفقات.",
-        reply_markup=main_menu(),
-    )
-
-
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_message:
-        await update.effective_message.reply_text(status_text())
-
-
-async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_message:
-        await update.effective_message.reply_text(
-            "📈 AL-GHRAM STRATEGY\n\n"
-            "• XAUUSD CFD فقط\n"
-            "• إطار M5\n"
-            "• جلسة لندن ونيويورك\n"
-            "• تحليل السيولة ومناطق السحب\n"
-            "• حجم التداول Tick Volume\n"
-            "• هيكل السوق والاختراق\n"
-            "• فلتر ATR والسبريد\n"
-            "• BUY STOP / SELL STOP\n"
-            "• Risk:Reward = 1:2\n"
-            "• حد أقصى 4 إشارات يومياً\n\n"
-            "⚠️ النتائج تحتاج اختباراً تاريخياً وتجريبياً.",
-        )
-
-
-async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-
-    if user is None or update.effective_message is None:
-        return
-
-    subscribers.add(user.id)
-    save_subscribers()
-
-    await update.effective_message.reply_text(
-        "✅ تم تفعيل استقبال التنبيهات."
-    )
-
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-
-    if query is None:
-        return
-
-    await query.answer()
-
-    if query.data == "status":
-        await query.edit_message_text(
-            status_text(),
-            reply_markup=main_menu(),
-        )
-
-    elif query.data == "rules":
-        await query.edit_message_text(
-            "📈 XAUUSD CFD | M5\n"
-            "السيولة + Tick Volume + هيكل السوق + ATR\n"
-            "جلسات لندن ونيويورك\n"
-            "BUY STOP / SELL STOP | RR 1:2\n\n"
-            "⚠️ إشارات نظرية فقط.",
-            reply_markup=main_menu(),
-        )
-
-    elif query.data == "subscribe":
-        subscribers.add(query.from_user.id)
-        save_subscribers()
-
-        await query.edit_message_text(
-            "✅ تم تفعيل استقبال التنبيهات.",
-            reply_markup=main_menu(),
-        )
-
-
-async def send_to_subscribers(message: str):
-    if telegram_app is None:
-        logger.warning("Telegram is not ready; notification was skipped")
-        return
-
-    for chat_id in list(subscribers):
-        try:
-            await telegram_app.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-            )
-        except Exception:
-            logger.exception(
-                "Could not send Telegram message to %s",
-                chat_id,
-            )
-
-
-# -------------------- MT5 DATA MODELS --------------------
+# ==============================
+# MARKET DATA MODELS
+# ==============================
 
 class Candle(BaseModel):
     time: str
@@ -222,7 +55,7 @@ class Candle(BaseModel):
     tick_volume: float = Field(ge=0)
 
 
-class MarketFeed(BaseModel):
+class Feed(BaseModel):
     symbol: str = Field(min_length=1, max_length=40)
     timeframe: str = "M5"
     digits: int = Field(default=2, ge=0, le=8)
@@ -231,40 +64,314 @@ class MarketFeed(BaseModel):
     bars: list[Candle] = Field(min_length=40, max_length=500)
 
 
-# -------------------- APPLICATION LIFECYCLE --------------------
+# ==============================
+# SUBSCRIBERS
+# ==============================
+
+def load_subscribers():
+    if not SUBSCRIBERS_FILE.exists():
+        return
+
+    try:
+        data = json.loads(
+            SUBSCRIBERS_FILE.read_text(encoding="utf-8")
+        )
+
+        if isinstance(data, list):
+            subscribers.update(int(x) for x in data)
+
+    except Exception:
+        log.exception("Unable to load subscribers")
+
+
+def save_subscribers():
+    try:
+        SUBSCRIBERS_FILE.write_text(
+            json.dumps(sorted(subscribers)),
+            encoding="utf-8",
+        )
+
+    except Exception:
+        log.exception("Unable to save subscribers")
+
+
+# ==============================
+# TELEGRAM MENU
+# ==============================
+
+def menu():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "💰 أسعار الذهب الآن",
+                callback_data="prices",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📌 الإشارة الحالية",
+                callback_data="signal",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📊 حالة النظام",
+                callback_data="status",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔔 تفعيل التنبيهات",
+                callback_data="subscribe",
+            )
+        ],
+    ])
+
+
+# ==============================
+# PRICE INFORMATION
+# ==============================
+
+def price_message():
+
+    if latest_market is None:
+        return (
+            "💰 أسعار الذهب\n\n"
+            "لا توجد بيانات أسعار حالياً.\n"
+            "تأكد من تشغيل MT5 Bridge "
+            "وإرسال بيانات XAUUSD."
+        )
+
+    m = latest_market
+
+    return (
+        f"💰 XAUUSD CFD — {m['symbol']}\n\n"
+        f"🟢 Bid: {m['bid']:.{m['digits']}f}\n"
+        f"🔴 Ask: {m['ask']:.{m['digits']}f}\n"
+        f"↔️ Spread: "
+        f"{(m['ask'] - m['bid']):.{m['digits']}f}\n\n"
+        f"🕒 آخر تحديث:\n{m['received_at']}\n\n"
+        "السعر من تغذية MT5 المرسلة إلى البوت."
+    )
+
+
+# ==============================
+# ACTIVE SIGNAL
+# ==============================
+
+def signal_message():
+
+    signal = book.active
+
+    if not signal:
+        return "📌 لا توجد إشارة نشطة حالياً."
+
+    return (
+        "📌 الإشارة الحالية\n\n"
+        f"السوق: {signal.get('symbol', 'XAUUSD')}\n"
+        f"النوع: {signal.get('order_type', '-')}\n"
+        f"الدخول: {signal.get('entry', '-')}\n"
+        f"وقف الخسارة: {signal.get('sl', '-')}\n"
+        f"الهدف: {signal.get('tp', '-')}\n"
+        f"الحالة: {signal.get('status', '-')}\n\n"
+        "⚠️ التنفيذ يدوي من قبلك."
+    )
+
+
+# ==============================
+# SYSTEM STATUS
+# ==============================
+
+def status_message():
+
+    market_status = (
+        "متصل"
+        if latest_market
+        else "بانتظار MT5"
+    )
+
+    return (
+        "👑 AL-GHRAM AI TRADING\n\n"
+        f"بيانات السوق: {market_status}\n"
+        f"الرمز: {book.symbol or '—'}\n"
+        f"إشارات اليوم: {book.daily_count}/4\n"
+        f"الإشارة النشطة: "
+        f"{'نعم' if book.active else 'لا'}\n\n"
+        "التنفيذ يدوي؛ البوت يرسل التنبيهات فقط."
+    )
+
+
+# ==============================
+# TELEGRAM COMMANDS
+# ==============================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user = update.effective_user
+
+    if user:
+        subscribers.add(user.id)
+        save_subscribers()
+
+    if update.effective_message:
+
+        await update.effective_message.reply_text(
+            "👑 أهلاً بك في AL-GHRAM AI TRADING\n\n"
+            "تنبيهات XAUUSD CFD على M5.\n"
+            "جلسات لندن ونيويورك.\n"
+            "التنفيذ يدوي، والبوت لا يفتح صفقات.",
+            reply_markup=menu(),
+        )
+
+
+async def subscribe(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user = update.effective_user
+
+    if user:
+        subscribers.add(user.id)
+        save_subscribers()
+
+    if update.effective_message:
+
+        await update.effective_message.reply_text(
+            "✅ تم تفعيل استقبال التنبيهات.",
+            reply_markup=menu(),
+        )
+
+
+async def status(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if update.effective_message:
+
+        await update.effective_message.reply_text(
+            status_message(),
+            reply_markup=menu(),
+        )
+
+
+# ==============================
+# BUTTON HANDLER
+# ==============================
+
+async def buttons(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    query = update.callback_query
+
+    if not query:
+        return
+
+    await query.answer()
+
+    if query.data == "prices":
+
+        message = price_message()
+
+    elif query.data == "signal":
+
+        message = signal_message()
+
+    elif query.data == "status":
+
+        message = status_message()
+
+    elif query.data == "subscribe":
+
+        subscribers.add(query.from_user.id)
+        save_subscribers()
+
+        message = "✅ تم تفعيل استقبال التنبيهات."
+
+    else:
+
+        message = "اختيار غير معروف."
+
+    await query.edit_message_text(
+        message,
+        reply_markup=menu(),
+    )
+
+
+# ==============================
+# SEND SIGNALS
+# ==============================
+
+async def broadcast(message: str):
+
+    if telegram_app is None:
+        log.warning("Telegram is not running")
+        return
+
+    for chat_id in list(subscribers):
+
+        try:
+
+            await telegram_app.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+            )
+
+        except Exception:
+
+            log.exception(
+                "Failed to send message to chat %s",
+                chat_id,
+            )
+
+
+# ==============================
+# APPLICATION LIFECYCLE
+# ==============================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     global telegram_app
 
     if not BOT_TOKEN:
         raise RuntimeError(
-            "Missing TELEGRAM_BOT_TOKEN environment variable"
+            "Set TELEGRAM_BOT_TOKEN in Render environment"
         )
 
     if not FEED_SECRET:
         raise RuntimeError(
-            "Missing FEED_SECRET environment variable"
+            "Set FEED_SECRET in Render environment"
         )
 
     load_subscribers()
 
-    telegram_app = Application.builder().token(BOT_TOKEN).build()
+    telegram_app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
 
     telegram_app.add_handler(
-        CommandHandler("start", start_command)
+        CommandHandler("start", start)
     )
+
     telegram_app.add_handler(
-        CommandHandler("status", status_command)
+        CommandHandler("subscribe", subscribe)
     )
+
     telegram_app.add_handler(
-        CommandHandler("rules", rules_command)
+        CommandHandler("status", status)
     )
+
     telegram_app.add_handler(
-        CommandHandler("subscribe", subscribe_command)
-    )
-    telegram_app.add_handler(
-        CallbackQueryHandler(button_handler)
+        CallbackQueryHandler(buttons)
     )
 
     await telegram_app.initialize()
@@ -272,61 +379,77 @@ async def lifespan(app: FastAPI):
 
     if telegram_app.updater is None:
         raise RuntimeError(
-            "Telegram updater could not be initialized"
+            "Telegram updater is unavailable"
         )
 
     await telegram_app.updater.start_polling(
         drop_pending_updates=True
     )
 
-    logger.info("AL-GHRAM service started")
+    log.info("AL-GHRAM started")
 
     try:
+
         yield
 
     finally:
+
         if telegram_app is not None:
+
             if telegram_app.updater is not None:
                 await telegram_app.updater.stop()
 
             await telegram_app.stop()
             await telegram_app.shutdown()
+
             telegram_app = None
 
 
-# -------------------- FASTAPI --------------------
+# ==============================
+# FASTAPI
+# ==============================
 
 api = FastAPI(
     title="AL-GHRAM AI TRADING",
-    version="1.1.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
 
 @api.get("/")
 async def home():
+
     return {
         "name": "AL-GHRAM AI TRADING",
         "status": "online",
-        "mode": "signals_only",
+        "mode": "manual_execution",
     }
 
 
 @api.get("/health")
 async def health():
+
     return {
         "ok": True,
         "telegram_ready": telegram_app is not None,
-        "market_data": "waiting_for_mt5_feed",
+        "market_data_ready": latest_market is not None,
     }
 
 
+# ==============================
+# MT5 MARKET FEED
+# ==============================
+
 @api.post("/feed/bars")
-async def receive_market_feed(
-    payload: MarketFeed,
+async def receive_feed(
+    payload: Feed,
     x_feed_secret: str | None = Header(default=None),
 ):
+
+    global latest_market
+
     if not FEED_SECRET or x_feed_secret != FEED_SECRET:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid feed secret",
@@ -335,21 +458,24 @@ async def receive_market_feed(
     symbol = payload.symbol.strip().upper()
 
     if not symbol.startswith("XAUUSD"):
+
         raise HTTPException(
             status_code=400,
-            detail="Only XAUUSD CFD symbols are accepted",
+            detail="Only XAUUSD CFD is accepted",
         )
 
     if payload.timeframe.strip().upper() != "M5":
+
         raise HTTPException(
             status_code=400,
-            detail="M5 timeframe is required",
+            detail="Only M5 timeframe is accepted",
         )
 
     if payload.ask < payload.bid:
+
         raise HTTPException(
             status_code=400,
-            detail="Ask must be greater than or equal to Bid",
+            detail="Ask cannot be below Bid",
         )
 
     bars = [
@@ -357,15 +483,17 @@ async def receive_market_feed(
         for candle in payload.bars
     ]
 
-    for candle in bars:
+    for index, candle in enumerate(bars):
+
         if candle["high"] < max(
             candle["open"],
             candle["close"],
             candle["low"],
         ):
+
             raise HTTPException(
-                status_code=400,
-                detail="Invalid candle high",
+                status_code=422,
+                detail=f"Invalid candle high at index {index}",
             )
 
         if candle["low"] > min(
@@ -373,9 +501,71 @@ async def receive_market_feed(
             candle["close"],
             candle["high"],
         ):
+
             raise HTTPException(
-                status_code=400,
-                detail="Invalid candle low",
+                status_code=422,
+                detail=f"Invalid candle low at index {index}",
+            )
+
+    latest_market = {
+        "symbol": symbol,
+        "bid": payload.bid,
+        "ask": payload.ask,
+        "digits": payload.digits,
+        "received_at": datetime.now(
+            timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S UTC"),
+    }
+
+    book.symbol = symbol
+
+    try:
+
+        events = book.update_market(
+            bars=bars,
+            bid=payload.bid,
+            ask=payload.ask,
+            strategy=strategy,
+            symbol=symbol,
+            bar_time=bars[-1]["time"],
+            digits=payload.digits,
+        )
+
+    except Exception as exc:
+
+        log.exception("Strategy processing failed")
+
+        raise HTTPException(
+            status_code=422,
+            detail="Strategy processing failed",
+        ) from exc
+
+    for event in events:
+
+        await broadcast(event)
+
+    return {
+        "ok": True,
+        "symbol": symbol,
+        "received_candles": len(bars),
+        "new_events": len(events),
+        "active_signal": book.active,
+        "daily_signals": book.daily_count,
+    }
+
+
+# ==============================
+# START SERVER
+# ==============================
+
+if __name__ == "__main__":
+
+    uvicorn.run(
+        api,
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+    )detail="Invalid candle low",
             )
 
     signal_book.symbol = symbol

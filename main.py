@@ -248,6 +248,23 @@ if __name__ == "__main__":
     t_monitor.start()
     
     print("Live API Pro Bot is polling successfully...")
+    bot.infinity_polling()e(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")
+        
+    elif call.data == "start_scalping":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "Bot is running smoothly with live API pricing.", parse_mode="Markdown")
+
+if __name__ == "__main__":
+    t_web = Thread(target=run_web)
+    t_web.start()
+    
+    t_ping = Thread(target=self_ping_engine)
+    t_ping.start()
+    
+    t_monitor = Thread(target=auto_market_monitor)
+    t_monitor.start()
+    
+    print("Live API Pro Bot is polling successfully...")
     bot.infinity_polling()"wallet_status":
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, "Virtual Wallet Status:\nBalance: 1000.0$\nLot Size: 0.10\nRisk Control: Active", parse_mode="Markdown")

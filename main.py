@@ -55,8 +55,10 @@ def get_market_data():
             current_price = float(data["price"])
             open_price = current_price - 0.50 
             return round(current_price, 2), round(open_price, 2)
+        else:
+            print(f"API Response Error: {data}")
     except Exception as e:
-        print(f"API Error: {e}")
+        print(f"API Exception: {e}")
     return None, None
 
 def get_current_time():
@@ -203,7 +205,7 @@ def callback_inline(call):
         if price:
             bot.send_message(call.message.chat.id, f"Live Gold Price: {price}")
         else:
-            bot.send_message(call.message.chat.id, "Fetching live price...")
+            bot.send_message(call.message.chat.id, "عذراً، جارٍ إعادة الاتصال بمزود الأسعار، حاول مرة أخرى بعد قليل.")
             
     elif call.data == "wallet_status":
         bot.answer_callback_query(call.id)

@@ -1,7 +1,7 @@
 import os
 import time
 import telebot
-import random
+import requests
 from flask import Flask
 from threading import Thread
 from telebot import types
@@ -10,6 +10,8 @@ import pytz
 import urllib.request
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+TWELVE_API_KEY = "308ab9dbd5744402b637d0b65b325aea"
+
 bot = telebot.TeleBot(TOKEN)
 USER_CHAT_ID = None
 
@@ -17,7 +19,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "IRS GOLD Ultimate Engine is Running Live!"
+    return "IRS GOLD Pro Live Engine is Running!"
 
 def run_web():
     port = int(os.environ.get('PORT', 8080))
@@ -34,30 +36,16 @@ def self_ping_engine():
         except Exception as e:
             print(f"Self-ping error: {e}")
 
-def is_active_trading_session():
+def get_live_gold_price():
     try:
-        utc_now = datetime.now(pytz.utc)
-        hour = utc_now.hour
-        if 6 <= hour <= 22: # توسيع نطاق الجلسة لضمان نشاط دائم
-            return True
+        url = f"https://api.twelvedata.com/price?symbol=XAU/USD&apikey={TWELVE_API_KEY}"
+        response = requests.get(url, timeout=8)
+        data = response.json()
+        if "price" in data:
+            return float(data["price"])
     except Exception as e:
-        print(f"Session check error: {e}")
-    return True # ضمان بقاء السوق متاحاً للمحاكاة النشطة
-
-# متغير لتتبع السعر الوهمي الواقعي المستقر للذهب
-current_simulated_price = 2750.50
-
-def get_market_data():
-    global current_simulated_price
-    try:
-        # محاكاة حركة ذهب حية ودقيقة تتذبذب صعوداً وهبوطاً بشكل واقعي لضمان توليد صفقات مستمرة
-        fluctuation = random.choice([-1.8, -1.2, -0.6, 0.6, 1.2, 1.8, 2.2, -2.2])
-        current_simulated_price = round(current_simulated_price + fluctuation, 2)
-        open_price = round(current_simulated_price - random.choice([0.4, 0.8, 1.1]), 2)
-        return current_simulated_price, open_price
-    except Exception as e:
-        print(f"Engine Error: {e}")
-    return 2750.00, 2749.00
+        print(f"API Fetch Error: {e}")
+    return None
 
 def get_current_time():
     tz = pytz.timezone('UTC')
@@ -65,7 +53,7 @@ def get_current_time():
 
 def auto_market_monitor():
     global USER_CHAT_ID
-    print("Starting IRS GOLD Ultimate Strategy Engine...")
+    print("Starting IRS GOLD Pro Execution Engine...")
     
     active_trade = False
     trade_activated = False
@@ -76,24 +64,30 @@ def auto_market_monitor():
     trade_timer = 0  
     virtual_balance = 1000.0
     lot_size = 0.10
+    
+    # حفظ سعر مرجعي دقيق لقياس الفارق اللحظي
+    reference_open_price = None
 
     while True:
         try:
-            if not is_active_trading_session():
-                time.sleep(60)
+            current_price = get_live_gold_price()
+            if not current_price:
+                time.sleep(20)
                 continue
 
-            current_price, open_price = get_market_data()
-            if current_price and USER_CHAT_ID:
-                
+            if reference_open_price is None:
+                reference_open_price = current_price - 1.2 # تهيئة مرجعية أولية دقيقة
+
+            if USER_CHAT_ID:
                 if active_trade:
                     t_now = get_current_time()
-                    trade_timer += 15  
+                    trade_timer += 20  
                     
-                    if not trade_activated and trade_timer >= 600:  # تقليص مهلة الانتظار لزيادة ديناميكية الصفقات
-                        bot.send_message(USER_CHAT_ID, f"Risk Management: Pending order reset for new market wave.\nTime: {t_now}")
+                    if not trade_activated and trade_timer >= 900:  # مهلة 15 دقيقة للأمر المعلق
+                        bot.send_message(USER_CHAT_ID, f"🔄 Risk Management: Pending order expired.\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                         active_trade = False
                         trade_timer = 0
+                        reference_open_price = current_price
                         time.sleep(10)
                         continue
 
@@ -101,56 +95,60 @@ def auto_market_monitor():
                         if not trade_activated:
                             if current_price >= entry_price_val:
                                 trade_activated = True
-                                bot.send_message(USER_CHAT_ID, f"🚀 Trade Activated (BUY) at `{entry_price_val}`\nTime: {t_now}", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🚀 **Trade Activated (BUY)** at `{entry_price_val}`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                         else:
                             if current_price >= target_tp:
                                 virtual_balance += 80.0  
-                                bot.send_message(USER_CHAT_ID, f"🎯 TP Hit! +80$\nVirtual Balance: `{virtual_balance}$`\nTime: {t_now}", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🎯 **TP Hit! +80$**\n💰 Balance: `{virtual_balance}$`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                                 active_trade = False
                                 trade_activated = False
                                 trade_timer = 0
+                                reference_open_price = current_price
                             elif current_price <= target_sl:
                                 virtual_balance -= 40.0  
-                                bot.send_message(USER_CHAT_ID, f"🛡️ SL Hit! -40$\nVirtual Balance: `{virtual_balance}$`\nTime: {t_now}", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🛡️ **SL Hit! -40$**\n💰 Balance: `{virtual_balance}$`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                                 active_trade = False
                                 trade_activated = False
                                 trade_timer = 0
+                                reference_open_price = current_price
                                 
                     elif trade_type == "SELL-STOP":
                         if not trade_activated:
                             if current_price <= entry_price_val:
                                 trade_activated = True
-                                bot.send_message(USER_CHAT_ID, f"🚀 Trade Activated (SELL) at `{entry_price_val}`\nTime: {t_now}", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🚀 **Trade Activated (SELL)** at `{entry_price_val}`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                         else:
                             if current_price <= target_tp:
                                 virtual_balance += 80.0
-                                bot.send_message(USER_CHAT_ID, f"🎯 TP Hit! +80$\nVirtual Balance: `{virtual_balance}$`\nTime: {t_now}", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🎯 **TP Hit! +80$**\n💰 Balance: `{virtual_balance}$`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                                 active_trade = False
                                 trade_activated = False
                                 trade_timer = 0
+                                reference_open_price = current_price
                             elif current_price >= target_sl:
                                 virtual_balance -= 40.0
-                                bot.send_message(USER_CHAT_ID, f"🛡️ SL Hit! -40$\nVirtual Balance: `{virtual_balance}$`\nTime: {t_now}", parse_mode="Markdown")
+                                bot.send_message(USER_CHAT_ID, f"🛡️ **SL Hit! -40$**\n💰 Balance: `{virtual_balance}$`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
                                 active_trade = False
                                 trade_activated = False
                                 trade_timer = 0
+                                reference_open_price = current_price
                     
-                    time.sleep(15)
+                    time.sleep(20)
                     continue
 
-                price_diff = round(current_price - open_price, 2)
+                price_diff = round(current_price - reference_open_price, 2)
                 
-                # تقليص شرط الفارق قليلاً (≥ 1.0) لضمان ديناميكية عالية وإرسال صفقات منتظمة ومتعددة اليوم
-                if abs(price_diff) >= 1.0 and not active_trade:
+                # شرط مرن وحساس لضمان إرسال صفقات منتظمة ومتعددة يومياً بناءً على تذبذب الذهب الحقيقي (فارق ≥ 0.8 نقطة)
+                if abs(price_diff) >= 0.8 and not active_trade:
                     t_now = get_current_time()
                     
                     if price_diff > 0:
-                        entry_price = round(current_price + 0.8, 2)
+                        entry_price = round(current_price + 0.5, 2)
                         sl = round(entry_price - 3.0, 2)
                         tp = round(entry_price + 6.0, 2)
                         trade_type = "BUY-STOP"
                     else:
-                        entry_price = round(current_price - 0.8, 2)
+                        entry_price = round(current_price - 0.5, 2)
                         sl = round(entry_price + 3.0, 2)
                         tp = round(entry_price - 6.0, 2)
                         trade_type = "SELL-STOP"
@@ -172,11 +170,12 @@ def auto_market_monitor():
                     target_tp = tp
                     target_sl = sl
                     trade_timer = 0  
+                    reference_open_price = current_price # تحديث المرجع بعد إرسال الصفقة
                     
-            time.sleep(15)
+            time.sleep(20)
         except Exception as e:
-            print(f"Monitor error: {e}")
-            time.sleep(15)
+            print(f"Monitor loop error: {e}")
+            time.sleep(20)
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -188,7 +187,7 @@ def send_welcome(message):
     item2 = types.InlineKeyboardButton("Virtual Wallet", callback_data="wallet_status")
     markup.add(item1, item2)
     
-    bot.reply_to(message, "👑 IRS GOLD Ultimate Engine is Active & Ready.", reply_markup=markup)
+    bot.reply_to(message, "👑 **IRS GOLD Pro Engine Active**\nConnected directly to live market feeds.", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
@@ -197,13 +196,16 @@ def callback_inline(call):
     
     if call.data == "live_price":
         bot.answer_callback_query(call.id)
-        price, _ = get_market_data()
+        price = get_live_gold_price()
         t_now = get_current_time()
-        bot.send_message(call.message.chat.id, f"🌟 Live Gold Price: `{price}`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
+        if price:
+            bot.send_message(call.message.chat.id, f"🌟 **Live Gold Price:** `{price}`\n⏱ Time: `{t_now}`", parse_mode="Markdown")
+        else:
+            bot.send_message(call.message.chat.id, "⚠️ جاري تحديث السعر الفوري، حاول مرة أخرى.")
             
     elif call.data == "wallet_status":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "💼 **Virtual Wallet Status:**\nBalance: `1000.0$`\nLot Size: `0.10`\nStatus: `Active & Protected`", parse_mode="Markdown")
+        bot.send_message(call.message.chat.id, "💼 **Virtual Wallet Status:**\nBalance: `1000.0$`\nLot Size: `0.10`\nStatus: `Active & Synchronized`", parse_mode="Markdown")
 
 if __name__ == "__main__":
     Thread(target=run_web).start()
